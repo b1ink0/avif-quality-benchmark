@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVIF Quality Test</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/index.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/styles.css">
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+</head>
+<body>
+<main>
+<nav><a href="./">Test</a><a href="explore.html">Explore all encodes</a><a id="issue-link" hidden>Discussion on GitHub</a></nav>
+<h1>Which AVIF quality looks as good as WebP 82?</h1>
+<p class="muted">WordPress saves AVIF at quality 82, which makes AVIF files larger than WebP at the same setting. Your results help pick a lower AVIF default that still looks as good.</p>
+
+<div class="panel">
+	<ol>
+		<li>Drag the divider on the image to compare WebP (left) with AVIF (right).</li>
+		<li>Move the quality slider to the <b>lowest</b> setting where the AVIF still looks as good as the WebP.</li>
+		<li>Press <b>Save and next</b>. Skip any image you are unsure about.</li>
+		<li>When you are done, press <b>Finish and share</b>. Sharing your results on the GitHub issue is optional.</li>
+	</ol>
+	<p class="muted" style="margin: 8px 0 0">Tips: use 1x zoom on a desktop screen if you can, and don't resize the browser to shrink the image. The quality number stays hidden on purpose so it doesn't influence you.</p>
+</div>
+
+<section id="voting" class="explorer">
+	<div class="toolbar">
+		<div class="seg" id="encoder" aria-label="WordPress encoder">
+			<button type="button" data-value="gd-avif">Server GD</button>
+			<button type="button" data-value="im-avif">Server Imagick</button>
+			<button type="button" data-value="vips-avif">Browser upload</button>
+		</div>
+		<div class="toolbar-end">
+			<span id="progress" class="muted"></span>
+			<div class="seg" id="zoom" aria-label="Zoom">
+				<button type="button" data-value="1" aria-pressed="true">1x</button>
+				<button type="button" data-value="2" aria-pressed="false">2x</button>
+				<button type="button" data-value="3" aria-pressed="false">3x</button>
+			</div>
+		</div>
+	</div>
+	<div class="frame">
+		<div class="labels"><div><b>WebP 82</b></div><div><b>AVIF</b></div></div>
+		<div class="stage">
+			<img-comparison-slider>
+				<img slot="first" id="webp" alt="WebP at quality 82">
+				<img slot="second" id="avif" alt="AVIF at the selected quality">
+			</img-comparison-slider>
+		</div>
+	</div>
+	<div class="quality">
+		<span class="muted">Smaller file</span>
+		<button id="down" aria-label="Lower quality">−</button>
+		<input id="quality" type="range" min="0" step="1" aria-label="AVIF quality">
+		<button id="up" aria-label="Higher quality">+</button>
+		<span class="muted">Higher quality</span>
+	</div>
+	<div class="actions">
+		<div class="row">
+			<button id="back">Back</button>
+			<button id="skip">Skip image</button>
+		</div>
+		<div class="row">
+			<button id="finish">Finish and share</button>
+			<button id="save" class="primary">Save and next</button>
+		</div>
+	</div>
+</section>
+
+<section id="results" class="explorer" hidden>
+	<div class="toolbar">
+		<h2>1. Check your results</h2>
+		<button id="continue">Keep voting</button>
+	</div>
+	<p id="summary"></p>
+	<div class="table-scroll">
+		<table class="scores"><thead><tr><th>Image</th><th>AVIF quality</th><th>AVIF size vs WebP 82</th></tr></thead><tbody id="table"></tbody></table>
+	</div>
+
+	<h2>2. Add details (optional)</h2>
+	<div class="form">
+		<label>Your screen, for example "MacBook Pro 14 Retina" or "27 inch 1440p"
+			<input id="display" type="text">
+		</label>
+		<label>Notes
+			<textarea id="notes"></textarea>
+		</label>
+	</div>
+
+	<h2>3. Share (optional)</h2>
+	<div class="row">
+		<button id="submit" class="primary">Copy and open the issue</button>
+		<button id="copy">Copy results</button>
+		<button id="download">Download JSON</button>
+	</div>
+	<p id="share-note" class="muted"></p>
+	<p class="muted">Want to test again from scratch? <button id="reset" class="link">Start over with a new order</button></p>
+</section>
+</main>
+<footer>Made with <a href="https://claude.com/claude-code">Claude Code</a>. Images from the <a href="https://r0k.us/graphics/kodak/">Kodak image suite</a>.</footer>
+
+<script>
+const { rows, dir } = window.BENCH;
+const $ = ( id ) => document.getElementById( id );
+const QUALITIES = Array.from( { length: 26 }, ( _, i ) => 40 + i * 2 );
+const WEBP_FOR = { 'gd-avif': 'gd-webp', 'im-avif': 'gd-webp', 'vips-avif': 'vips-webp' };
+const STORE = 'avif-quality-vote-v1';
+// GitHub issue where people can share their results as a comment.
+const ISSUE_URL = 'https://github.com/WordPress/performance/issues/2745';
+const images = [ ...new Set( rows.map( ( r ) => r.image ) ) ];
+const find = ( image, encoder, q ) => rows.find( ( r ) => r.image === image && r.encoder === encoder && r.q === q );
+const file = ( r ) => `${ dir }/enc/${ r.image }__${ r.encoder }__${ r.q }.${ r.ext }`;
+const median = ( list ) => {
+	const s = [ ...list ].sort( ( a, b ) => a - b );
+	const m = s.length >> 1;
+	return s.length % 2 ? s[ m ] : ( s[ m - 1 ] + s[ m ] ) / 2;
+};
+
+function newState( encoder ) {
+	const order = [ ...images ].sort( () => Math.random() - 0.5 );
+	const start = Object.fromEntries( order.map( ( i ) => [ i, Math.floor( Math.random() * QUALITIES.length ) ] ) );
+	return { encoder, order, start, index: 0, votes: {} };
+}
+
+let state;
+try {
+	state = JSON.parse( localStorage.getItem( STORE ) );
+} catch {}
+if ( ! state || ! state.order ) {
+	state = newState( 'gd-avif' );
+}
+const save = () => {
+	try {
+		localStorage.setItem( STORE, JSON.stringify( state ) );
+	} catch {}
+};
+
+if ( ISSUE_URL ) {
+	$( 'issue-link' ).href = ISSUE_URL;
+	$( 'issue-link' ).hidden = false;
+}
+
+$( 'quality' ).max = QUALITIES.length - 1;
+
+function current() {
+	return state.order[ state.index ];
+}
+
+function renderImage() {
+	const image = current();
+	const done = Object.keys( state.votes ).length;
+	$( 'progress' ).textContent = `Image ${ Math.min( state.index + 1, images.length ) } of ${ images.length } · ${ done } saved`;
+	$( 'back' ).disabled = state.index === 0;
+	$( 'finish' ).disabled = done === 0;
+	if ( state.index >= images.length ) {
+		showResults();
+		return;
+	}
+	const vote = state.votes[ image ];
+	$( 'quality' ).value = typeof vote === 'number' ? QUALITIES.indexOf( vote ) : state.start[ image ];
+	$( 'webp' ).src = file( find( image, WEBP_FOR[ state.encoder ], 82 ) );
+	renderAvif();
+}
+
+function renderAvif() {
+	$( 'avif' ).src = file( find( current(), state.encoder, QUALITIES[ $( 'quality' ).value ] ) );
+}
+
+function applyZoom() {
+	const zoom = Number( $( 'zoom' ).querySelector( '[aria-pressed="true"]' ).dataset.value );
+	for ( const img of [ $( 'webp' ), $( 'avif' ) ] ) {
+		img.style.width = img.naturalWidth ? `${ img.naturalWidth * zoom }px` : '';
+	}
+}
+
+function step( delta ) {
+	$( 'quality' ).value = Number( $( 'quality' ).value ) + delta;
+	renderAvif();
+}
+
+function next() {
+	state.index++;
+	save();
+	renderImage();
+}
+
+function result() {
+	const votes = Object.entries( state.votes ).filter( ( [ , q ] ) => typeof q === 'number' );
+	return {
+		version: 1,
+		encoder: state.encoder,
+		display: $( 'display' ).value.trim(),
+		notes: $( 'notes' ).value.trim(),
+		devicePixelRatio: window.devicePixelRatio,
+		viewport: `${ window.innerWidth }x${ window.innerHeight }`,
+		picks: Object.fromEntries( votes ),
+		skipped: Object.keys( state.votes ).filter( ( i ) => state.votes[ i ] === null ),
+	};
+}
+
+function sizeRatio( image, q ) {
+	return find( image, state.encoder, q ).bytes / find( image, WEBP_FOR[ state.encoder ], 82 ).bytes;
+}
+
+function summaryText( r ) {
+	const qs = Object.values( r.picks );
+	if ( ! qs.length ) {
+		return 'No images saved yet.';
+	}
+	const ratio = median( Object.entries( r.picks ).map( ( [ i, q ] ) => sizeRatio( i, q ) ) );
+	return `${ qs.length } of ${ images.length } images rated · median AVIF quality ${ median( qs ) } · median AVIF size ${ Math.round( ratio * 100 ) }% of WebP 82`;
+}
+
+function issueBody() {
+	const r = result();
+	return [
+		'### AVIF quality test results',
+		'',
+		`Encoder: \`${ r.encoder }\``,
+		summaryText( r ),
+		r.display ? `Screen: ${ r.display }` : '',
+		r.notes ? `\nNotes: ${ r.notes }` : '',
+		'',
+		'<details><summary>Data</summary>',
+		'',
+		'```json',
+		JSON.stringify( r ),
+		'```',
+		'',
+		'</details>',
+	].filter( ( line, i, all ) => line !== '' || all[ i - 1 ] !== '' ).join( '\n' );
+}
+
+function showResults() {
+	$( 'voting' ).hidden = true;
+	$( 'results' ).hidden = false;
+	const r = result();
+	$( 'summary' ).textContent = summaryText( r );
+	$( 'table' ).innerHTML = Object.entries( r.picks ).sort().map( ( [ i, q ] ) => `<tr><td>${ i }</td><td>${ q }</td><td>${ Math.round( sizeRatio( i, q ) * 100 ) }%</td></tr>` ).join( '' );
+	$( 'submit' ).hidden = ! ISSUE_URL;
+	$( 'share-note' ).textContent = ISSUE_URL
+		? 'Copy and open the issue copies your results and opens the GitHub issue. Paste them as a comment there. No GitHub account? Press Copy results and send the text to the person who shared this page.'
+		: 'Press Copy results and send the text to the person who shared this page.';
+}
+
+const press = ( group, value ) => group.querySelectorAll( 'button' ).forEach( ( b ) => b.setAttribute( 'aria-pressed', String( b.dataset.value === value ) ) );
+press( $( 'encoder' ), state.encoder );
+$( 'encoder' ).querySelectorAll( 'button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+	if ( b.dataset.value === state.encoder || ( Object.keys( state.votes ).length && ! confirm( 'Changing the encoder starts a new round and clears your saved picks. Continue?' ) ) ) {
+		return;
+	}
+	state = newState( b.dataset.value );
+	press( $( 'encoder' ), state.encoder );
+	save();
+	renderImage();
+} ) );
+$( 'quality' ).addEventListener( 'input', renderAvif );
+$( 'down' ).addEventListener( 'click', () => step( -1 ) );
+$( 'up' ).addEventListener( 'click', () => step( 1 ) );
+$( 'zoom' ).querySelectorAll( 'button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+	press( $( 'zoom' ), b.dataset.value );
+	applyZoom();
+} ) );
+$( 'webp' ).addEventListener( 'load', applyZoom );
+$( 'avif' ).addEventListener( 'load', applyZoom );
+$( 'save' ).addEventListener( 'click', () => {
+	state.votes[ current() ] = QUALITIES[ $( 'quality' ).value ];
+	next();
+} );
+$( 'skip' ).addEventListener( 'click', () => {
+	state.votes[ current() ] = null;
+	next();
+} );
+$( 'back' ).addEventListener( 'click', () => {
+	state.index--;
+	save();
+	renderImage();
+} );
+$( 'finish' ).addEventListener( 'click', showResults );
+$( 'continue' ).addEventListener( 'click', () => {
+	state.index = Math.min( state.index, images.length - 1 );
+	$( 'results' ).hidden = true;
+	$( 'voting' ).hidden = false;
+	renderImage();
+} );
+$( 'submit' ).addEventListener( 'click', async () => {
+	await navigator.clipboard.writeText( issueBody() );
+	$( 'submit' ).textContent = 'Copied, paste it as a comment';
+	window.open( ISSUE_URL, '_blank', 'noopener' );
+} );
+$( 'copy' ).addEventListener( 'click', async () => {
+	await navigator.clipboard.writeText( issueBody() );
+	$( 'copy' ).textContent = 'Copied';
+} );
+$( 'download' ).addEventListener( 'click', () => {
+	const a = document.createElement( 'a' );
+	a.href = URL.createObjectURL( new Blob( [ JSON.stringify( result(), null, 2 ) ], { type: 'application/json' } ) );
+	a.download = `avif-quality-results-${ state.encoder }.json`;
+	a.click();
+} );
+$( 'reset' ).addEventListener( 'click', () => {
+	if ( ! confirm( 'This clears your saved picks. Continue?' ) ) {
+		return;
+	}
+	state = newState( state.encoder );
+	save();
+	$( 'results' ).hidden = true;
+	$( 'voting' ).hidden = false;
+	renderImage();
+} );
+
+renderImage();
+</script>
+</body>
+</html>

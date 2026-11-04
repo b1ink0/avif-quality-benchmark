@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVIF Quality Explorer</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/index.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/styles.css">
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+</head>
+<body>
+<main>
+<nav><a href="./">Vote</a><a href="explore.html">Explore all encodes</a></nav>
+<h1>Explore all encodes</h1>
+<p class="muted">Drag the divider on the image to compare. Change each side with the controls below it.</p>
+
+<div class="explorer">
+	<div class="toolbar">
+		<div class="seg">
+			<button id="prev" aria-label="Previous image">‹</button>
+			<select id="image" aria-label="Image"></select>
+			<button id="next" aria-label="Next image">›</button>
+		</div>
+		<div class="seg" id="zoom" aria-label="Zoom"></div>
+	</div>
+	<div class="frame">
+		<div class="labels"><div id="left-name"></div><div id="right-name"></div></div>
+		<div class="stage">
+			<img-comparison-slider>
+				<img slot="first" id="left-img" alt="Left encode">
+				<img slot="second" id="right-img" alt="Right encode">
+			</img-comparison-slider>
+		</div>
+	</div>
+	<div class="sides">
+		<div class="side" id="left"></div>
+		<div class="side" id="right"></div>
+	</div>
+	<table class="scores">
+		<thead><tr><th>Score</th><th>Left</th><th>Right</th></tr></thead>
+		<tbody id="stats"></tbody>
+	</table>
+	<div class="legend">
+		<span>Scores compare each side with the lossless original.</span>
+		<span><span class="better">Green</span>: better of the two</span>
+		<span><span class="worse">Red</span>: worse</span>
+		<span><span class="same">Gray</span>: same</span>
+	</div>
+</div>
+</main>
+<footer>Made with <a href="https://claude.com/claude-code">Claude Code</a>. Images from the <a href="https://r0k.us/graphics/kodak/">Kodak image suite</a>.</footer>
+
+<script>
+const { rows, dir } = window.BENCH;
+const $ = ( id ) => document.getElementById( id );
+const FORMATS = { original: 'Original', webp: 'WebP', avif: 'AVIF', jpeg: 'JPEG' };
+const ENGINES = { gd: 'Server GD', im: 'Server Imagick', vips: 'Browser' };
+const kb = ( b ) => `${ ( b / 1024 ).toFixed( 1 ) } KB`;
+const METRICS = [
+	{ key: 'bytes', name: 'File size', lowerIsBetter: true, format: kb },
+	{ key: 'ssimulacra2', name: 'SSIMULACRA 2', lowerIsBetter: false, format: ( v ) => v.toFixed( 1 ) },
+	{ key: 'butteraugli', name: 'Butteraugli', lowerIsBetter: true, format: ( v ) => v.toFixed( 2 ) },
+	{ key: 'vmaf', name: 'VMAF', lowerIsBetter: false, format: ( v ) => v.toFixed( 1 ) },
+];
+const images = [ ...new Set( rows.map( ( r ) => r.image ) ) ];
+const engines = ( format ) => Object.keys( ENGINES ).filter( ( e ) => rows.some( ( r ) => r.encoder === `${ e }-${ format }` ) );
+const qualities = ( encoder ) => [ ...new Set( rows.filter( ( r ) => r.encoder === encoder ).map( ( r ) => r.q ) ) ].sort( ( a, b ) => a - b );
+const sides = {
+	left: { format: 'webp', engine: 'gd', q: 82 },
+	right: { format: 'avif', engine: 'gd', q: 82 },
+};
+let zoom = 1;
+
+$( 'image' ).innerHTML = images.map( ( i ) => `<option>${ i }</option>` ).join( '' );
+
+function seg( options, value ) {
+	return Object.entries( options ).map( ( [ k, v ] ) => `<button type="button" data-value="${ k }" aria-pressed="${ k === String( value ) }">${ v }</button>` ).join( '' );
+}
+
+function row( side ) {
+	const s = sides[ side ];
+	return s.format === 'original' ? null : rows.find( ( r ) => r.image === $( 'image' ).value && r.encoder === `${ s.engine }-${ s.format }` && r.q === s.q );
+}
+
+function label( side ) {
+	const s = sides[ side ];
+	return s.format === 'original' ? 'Original (lossless)' : `${ FORMATS[ s.format ] } ${ ENGINES[ s.engine ] } Q${ s.q }`;
+}
+
+function controls( side ) {
+	const s = sides[ side ];
+	const box = $( side );
+	let html = `<div class="side-title">${ side === 'left' ? 'Left' : 'Right' } side</div><div class="seg" data-key="format" aria-label="Format">${ seg( FORMATS, s.format ) }</div>`;
+	if ( s.format !== 'original' ) {
+		const qs = qualities( `${ s.engine }-${ s.format }` );
+		html += `<div class="seg" data-key="engine" aria-label="Encoder">${ seg( Object.fromEntries( engines( s.format ).map( ( e ) => [ e, ENGINES[ e ] ] ) ), s.engine ) }</div>`;
+		html += qs.length > 1
+			? `<label class="slider">Quality <input type="range" min="0" max="${ qs.length - 1 }" value="${ qs.indexOf( s.q ) }"> <b>${ s.q }</b></label>`
+			: '<span class="muted">Quality 82 only</span>';
+	}
+	box.innerHTML = html;
+	box.querySelectorAll( '.seg button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+		s[ b.parentElement.dataset.key ] = b.dataset.value;
+		if ( s.format !== 'original' ) {
+			const available = engines( s.format );
+			s.engine = available.includes( s.engine ) ? s.engine : available[ 0 ];
+			const qs = qualities( `${ s.engine }-${ s.format }` );
+			s.q = qs.reduce( ( best, q ) => ( Math.abs( q - s.q ) < Math.abs( best - s.q ) ? q : best ) );
+		}
+		controls( side );
+		render();
+	} ) );
+	const range = box.querySelector( 'input[type="range"]' );
+	if ( range ) {
+		range.addEventListener( 'input', () => {
+			s.q = qualities( `${ s.engine }-${ s.format }` )[ range.value ];
+			box.querySelector( '.slider b' ).textContent = s.q;
+			render();
+		} );
+	}
+}
+
+function render() {
+	for ( const side of [ 'left', 'right' ] ) {
+		const r = row( side );
+		$( `${ side }-img` ).src = r ? `${ dir }/enc/${ r.image }__${ r.encoder }__${ r.q }.${ r.ext }` : `${ dir }/ref/${ $( 'image' ).value }.png`;
+		$( `${ side }-name` ).innerHTML = `<b>${ label( side ) }</b>`;
+	}
+	const left = row( 'left' );
+	const right = row( 'right' );
+	$( 'stats' ).innerHTML = METRICS.map( ( m ) => {
+		const text = ( r ) => r ? m.format( r[ m.key ] ) : 'Lossless';
+		const tone = ( a, b ) => {
+			if ( ! a || ! b || text( a ) === text( b ) ) {
+				return 'same';
+			}
+			return ( a[ m.key ] < b[ m.key ] ) === m.lowerIsBetter ? 'better' : 'worse';
+		};
+		return `<tr><th>${ m.name } <span class="muted">(${ m.lowerIsBetter ? 'lower' : 'higher' } is better)</span></th><td class="${ tone( left, right ) }">${ text( left ) }</td><td class="${ tone( right, left ) }">${ text( right ) }</td></tr>`;
+	} ).join( '' );
+}
+
+function applyZoom() {
+	for ( const img of [ $( 'left-img' ), $( 'right-img' ) ] ) {
+		img.style.width = img.naturalWidth ? `${ img.naturalWidth * zoom }px` : '';
+	}
+}
+
+function zoomControls() {
+	$( 'zoom' ).innerHTML = seg( { 1: '1x', 2: '2x', 3: '3x' }, zoom );
+	$( 'zoom' ).querySelectorAll( 'button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+		zoom = Number( b.dataset.value );
+		zoomControls();
+		applyZoom();
+	} ) );
+}
+
+function moveImage( delta ) {
+	$( 'image' ).selectedIndex = ( $( 'image' ).selectedIndex + delta + images.length ) % images.length;
+	render();
+}
+
+$( 'left-img' ).addEventListener( 'load', applyZoom );
+$( 'right-img' ).addEventListener( 'load', applyZoom );
+$( 'image' ).addEventListener( 'change', render );
+$( 'prev' ).addEventListener( 'click', () => moveImage( -1 ) );
+$( 'next' ).addEventListener( 'click', () => moveImage( 1 ) );
+zoomControls();
+controls( 'left' );
+controls( 'right' );
+render();
+</script>
+</body>
+</html>
