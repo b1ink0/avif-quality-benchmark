@@ -1,0 +1,26 @@
+# Same benchmark on Alpine 3.24, where GD gets libavif 1.4 and Imagick gets libheif 1.23, both with libaom 3.14,
+# so both server paths use libaom's tune=iq by default. Scoring tools are the same versions as the Debian image.
+FROM php:8.3-cli-alpine3.24
+
+RUN apk add --no-cache bash coreutils curl git build-base cmake pkgconf $PHPIZE_DEPS \
+		libavif-dev libavif-apps libwebp-dev libwebp-tools libjpeg-turbo-dev libpng-dev freetype-dev \
+		imagemagick imagemagick-dev imagemagick-heic imagemagick-jpeg imagemagick-webp libheif aom-libs \
+		brotli-dev giflib-dev lcms2-dev highway-dev zlib-dev ffmpeg cargo nodejs npm \
+	&& docker-php-ext-configure gd --with-avif --with-webp --with-jpeg --with-freetype \
+	&& docker-php-ext-install gd \
+	&& pecl install imagick-3.8.1 && docker-php-ext-enable imagick
+
+RUN git clone --depth 1 --branch v0.11.1 --recursive --shallow-submodules https://github.com/libjxl/libjxl.git /tmp/libjxl \
+	&& cmake -S /tmp/libjxl -B /tmp/libjxl/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DJPEGXL_ENABLE_DEVTOOLS=ON \
+		-DJPEGXL_ENABLE_BENCHMARK=OFF -DJPEGXL_ENABLE_EXAMPLES=OFF -DJPEGXL_ENABLE_MANPAGES=OFF -DJPEGXL_ENABLE_SJPEG=OFF \
+		-DJPEGXL_ENABLE_OPENEXR=OFF -DJPEGXL_ENABLE_JPEGLI=OFF -DJPEGXL_FORCE_SYSTEM_HWY=ON -DJPEGXL_FORCE_SYSTEM_BROTLI=ON \
+	&& cmake --build /tmp/libjxl/build -j"$(nproc)" --target ssimulacra2 butteraugli_main \
+	&& cp /tmp/libjxl/build/tools/ssimulacra2 /tmp/libjxl/build/tools/butteraugli_main /usr/local/bin/ \
+	&& rm -rf /tmp/libjxl
+
+RUN cargo install --locked --root /usr/local dssim --version 3.4.0 && rm -rf /root/.cargo
+
+# Alpine's ffmpeg is used for VMAF when it has libvmaf. check.sh reports it.
+RUN ln -s /usr/bin/ffmpeg /usr/local/bin/ffmpeg-vmaf
+
+RUN curl -sSL https://wordpress.org/wordpress-7.1.4.tar.gz | tar -xz -C /usr/src

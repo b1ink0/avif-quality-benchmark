@@ -4,16 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AVIF Quality Explorer</title>
-<script type="module" src="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/index.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/img-comparison-slider@8.0.6/dist/styles.css">
 <link rel="stylesheet" href="style.css">
 <script src="data.js"></script>
 </head>
 <body>
 <main>
-<nav><a href="./">Vote</a><a href="explore.html">Explore all encodes</a></nav>
+<nav><a href="./">Test</a><a href="explore.html">Explore all encodes</a></nav>
 <h1>Explore all encodes</h1>
-<p class="muted">Drag the divider on the image to compare. Change each side with the controls below it.</p>
+<p class="muted">Compare three encodes of the same image side by side. Change each column with the controls above it. Scrolling one image scrolls the others to the same spot.</p>
 
 <div class="explorer">
 	<div class="toolbar">
@@ -24,52 +22,41 @@
 		</div>
 		<div class="seg" id="zoom" aria-label="Zoom"></div>
 	</div>
-	<div class="frame">
-		<div class="labels"><div id="left-name"></div><div id="right-name"></div></div>
-		<div class="stage">
-			<img-comparison-slider>
-				<img slot="first" id="left-img" alt="Left encode">
-				<img slot="second" id="right-img" alt="Right encode">
-			</img-comparison-slider>
-		</div>
-	</div>
 	<div class="sides">
-		<div class="side" id="left"></div>
-		<div class="side" id="right"></div>
+		<div class="side" id="col0"></div>
+		<div class="side" id="col1"></div>
+		<div class="side" id="col2"></div>
 	</div>
-	<table class="scores">
-		<thead><tr><th>Score</th><th>Left</th><th>Right</th></tr></thead>
-		<tbody id="stats"></tbody>
-	</table>
 	<div class="legend">
-		<span>Scores compare each side with the lossless original.</span>
-		<span><span class="better">Green</span>: better of the two</span>
+		<span>Scores compare each encode with the lossless original from the same editor.</span>
+		<span><span class="better">Green</span>: better than column 1</span>
 		<span><span class="worse">Red</span>: worse</span>
 		<span><span class="same">Gray</span>: same</span>
 	</div>
 </div>
 </main>
-<footer>Made with <a href="https://claude.com/claude-code">Claude Code</a>. Images from the <a href="https://r0k.us/graphics/kodak/">Kodak image suite</a>.</footer>
+<footer>Made with <a href="https://claude.com/claude-code">Claude Code</a>. Images from the Kodak image suite, CLIC 2020, CID22, Wikimedia Commons, Wikipedia and WordPress, see the <a href="https://github.com/b1ink0/avif-vs-webp-quality#credits">credits</a>.</footer>
 
 <script>
 const { rows, dir } = window.BENCH;
 const $ = ( id ) => document.getElementById( id );
-const FORMATS = { original: 'Original', webp: 'WebP', avif: 'AVIF', jpeg: 'JPEG' };
-const ENGINES = { gd: 'Server GD', im: 'Server Imagick', vips: 'Browser' };
+const FORMATS = { ref: 'Original', jpeg: 'JPEG', webp: 'WebP', avif: 'AVIF' };
+const EDITORS = { gd: 'GD', imagick: 'Imagick', vips: 'Browser' };
+const EXT = { ref: 'png', jpeg: 'jpg', webp: 'webp', avif: 'avif' };
 const kb = ( b ) => `${ ( b / 1024 ).toFixed( 1 ) } KB`;
 const METRICS = [
-	{ key: 'bytes', name: 'File size', lowerIsBetter: true, format: kb },
 	{ key: 'ssimulacra2', name: 'SSIMULACRA 2', lowerIsBetter: false, format: ( v ) => v.toFixed( 1 ) },
 	{ key: 'butteraugli', name: 'Butteraugli', lowerIsBetter: true, format: ( v ) => v.toFixed( 2 ) },
+	{ key: 'dssim', name: 'DSSIM', lowerIsBetter: true, format: ( v ) => v.toFixed( 5 ) },
 	{ key: 'vmaf', name: 'VMAF', lowerIsBetter: false, format: ( v ) => v.toFixed( 1 ) },
 ];
 const images = [ ...new Set( rows.map( ( r ) => r.image ) ) ];
-const engines = ( format ) => Object.keys( ENGINES ).filter( ( e ) => rows.some( ( r ) => r.encoder === `${ e }-${ format }` ) );
-const qualities = ( encoder ) => [ ...new Set( rows.filter( ( r ) => r.encoder === encoder ).map( ( r ) => r.q ) ) ].sort( ( a, b ) => a - b );
-const sides = {
-	left: { format: 'webp', engine: 'gd', q: 82 },
-	right: { format: 'avif', engine: 'gd', q: 82 },
-};
+const qualities = ( editor, format ) => [ ...new Set( rows.filter( ( r ) => r.editor === editor && r.format === format ).map( ( r ) => r.q ) ) ].sort( ( a, b ) => a - b );
+const columns = [
+	{ format: 'jpeg', editor: 'gd', q: 82 },
+	{ format: 'webp', editor: 'gd', q: 82 },
+	{ format: 'avif', editor: 'gd', q: 74 },
+];
 let zoom = 1;
 
 $( 'image' ).innerHTML = images.map( ( i ) => `<option>${ i }</option>` ).join( '' );
@@ -78,73 +65,73 @@ function seg( options, value ) {
 	return Object.entries( options ).map( ( [ k, v ] ) => `<button type="button" data-value="${ k }" aria-pressed="${ k === String( value ) }">${ v }</button>` ).join( '' );
 }
 
-function row( side ) {
-	const s = sides[ side ];
-	return s.format === 'original' ? null : rows.find( ( r ) => r.image === $( 'image' ).value && r.encoder === `${ s.engine }-${ s.format }` && r.q === s.q );
+function row( c ) {
+	return c.format === 'ref' ? null : rows.find( ( r ) => r.image === $( 'image' ).value && r.editor === c.editor && r.format === c.format && r.q === c.q );
 }
 
-function label( side ) {
-	const s = sides[ side ];
-	return s.format === 'original' ? 'Original (lossless)' : `${ FORMATS[ s.format ] } ${ ENGINES[ s.engine ] } Q${ s.q }`;
-}
-
-function controls( side ) {
-	const s = sides[ side ];
-	const box = $( side );
-	let html = `<div class="side-title">${ side === 'left' ? 'Left' : 'Right' } side</div><div class="seg" data-key="format" aria-label="Format">${ seg( FORMATS, s.format ) }</div>`;
-	if ( s.format !== 'original' ) {
-		const qs = qualities( `${ s.engine }-${ s.format }` );
-		html += `<div class="seg" data-key="engine" aria-label="Encoder">${ seg( Object.fromEntries( engines( s.format ).map( ( e ) => [ e, ENGINES[ e ] ] ) ), s.engine ) }</div>`;
-		html += qs.length > 1
-			? `<label class="slider">Quality <input type="range" min="0" max="${ qs.length - 1 }" value="${ qs.indexOf( s.q ) }"> <b>${ s.q }</b></label>`
-			: '<span class="muted">Quality 82 only</span>';
+function controls( i ) {
+	const c = columns[ i ];
+	const box = $( `col${ i }` );
+	const qs = qualities( c.editor, c.format );
+	let quality = '<span class="muted">Lossless</span>';
+	if ( qs.length > 1 ) {
+		quality = `<label class="slider">Quality <input type="range" min="0" max="${ qs.length - 1 }" value="${ qs.indexOf( c.q ) }"> <b>${ c.q }</b></label>`;
+	} else if ( qs.length ) {
+		quality = `<span class="muted">Quality ${ c.q } only</span>`;
 	}
-	box.innerHTML = html;
+	box.innerHTML = `<div class="side-title">Column ${ i + 1 }</div>
+		<div class="seg" data-key="format" aria-label="Format">${ seg( FORMATS, c.format ) }</div>
+		<div class="seg" data-key="editor" aria-label="Editor">${ seg( EDITORS, c.editor ) }</div>
+		${ quality }
+		<div class="stage"><img alt=""></div>
+		<table class="scores"><tbody></tbody></table>`;
 	box.querySelectorAll( '.seg button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
-		s[ b.parentElement.dataset.key ] = b.dataset.value;
-		if ( s.format !== 'original' ) {
-			const available = engines( s.format );
-			s.engine = available.includes( s.engine ) ? s.engine : available[ 0 ];
-			const qs = qualities( `${ s.engine }-${ s.format }` );
-			s.q = qs.reduce( ( best, q ) => ( Math.abs( q - s.q ) < Math.abs( best - s.q ) ? q : best ) );
-		}
-		controls( side );
+		c[ b.parentElement.dataset.key ] = b.dataset.value;
+		const available = qualities( c.editor, c.format );
+		c.q = available.length ? available.reduce( ( best, q ) => ( Math.abs( q - c.q ) < Math.abs( best - c.q ) ? q : best ) ) : 0;
+		controls( i );
 		render();
 	} ) );
 	const range = box.querySelector( 'input[type="range"]' );
 	if ( range ) {
 		range.addEventListener( 'input', () => {
-			s.q = qualities( `${ s.engine }-${ s.format }` )[ range.value ];
-			box.querySelector( '.slider b' ).textContent = s.q;
+			c.q = qs[ range.value ];
+			box.querySelector( '.slider b' ).textContent = c.q;
 			render();
 		} );
 	}
+	const img = box.querySelector( 'img' );
+	img.addEventListener( 'load', () => {
+		img.style.width = `${ img.naturalWidth * zoom }px`;
+	} );
+	const stage = box.querySelector( '.stage' );
+	stage.addEventListener( 'scroll', () => {
+		for ( const other of document.querySelectorAll( '.side .stage' ) ) {
+			if ( other !== stage && ( other.scrollLeft !== stage.scrollLeft || other.scrollTop !== stage.scrollTop ) ) {
+				other.scrollLeft = stage.scrollLeft;
+				other.scrollTop = stage.scrollTop;
+			}
+		}
+	} );
 }
 
 function render() {
-	for ( const side of [ 'left', 'right' ] ) {
-		const r = row( side );
-		$( `${ side }-img` ).src = r ? `${ dir }/enc/${ r.image }__${ r.encoder }__${ r.q }.${ r.ext }` : `${ dir }/ref/${ $( 'image' ).value }.png`;
-		$( `${ side }-name` ).innerHTML = `<b>${ label( side ) }</b>`;
-	}
-	const left = row( 'left' );
-	const right = row( 'right' );
-	$( 'stats' ).innerHTML = METRICS.map( ( m ) => {
-		const text = ( r ) => r ? m.format( r[ m.key ] ) : 'Lossless';
-		const tone = ( a, b ) => {
-			if ( ! a || ! b || text( a ) === text( b ) ) {
+	const first = row( columns[ 0 ] );
+	columns.forEach( ( c, i ) => {
+		const box = $( `col${ i }` );
+		const r = row( c );
+		const img = box.querySelector( 'img' );
+		img.src = `${ dir }/${ $( 'image' ).value }/${ c.editor }/${ c.format }__${ c.q }.${ EXT[ c.format ] }`;
+		img.alt = c.format === 'ref' ? `Original from ${ EDITORS[ c.editor ] }` : `${ FORMATS[ c.format ] } ${ c.q } from ${ EDITORS[ c.editor ] }`;
+		const tone = ( key, lowerIsBetter, text ) => {
+			if ( ! i || ! r || ! first || text( r[ key ] ) === text( first[ key ] ) ) {
 				return 'same';
 			}
-			return ( a[ m.key ] < b[ m.key ] ) === m.lowerIsBetter ? 'better' : 'worse';
+			return ( r[ key ] < first[ key ] ) === lowerIsBetter ? 'better' : 'worse';
 		};
-		return `<tr><th>${ m.name } <span class="muted">(${ m.lowerIsBetter ? 'lower' : 'higher' } is better)</span></th><td class="${ tone( left, right ) }">${ text( left ) }</td><td class="${ tone( right, left ) }">${ text( right ) }</td></tr>`;
-	} ).join( '' );
-}
-
-function applyZoom() {
-	for ( const img of [ $( 'left-img' ), $( 'right-img' ) ] ) {
-		img.style.width = img.naturalWidth ? `${ img.naturalWidth * zoom }px` : '';
-	}
+		const size = r ? kb( r.bytes ) + ( i && first ? ` (${ Math.round( ( r.bytes / first.bytes ) * 100 ) }%)` : '' ) : 'Lossless';
+		box.querySelector( 'tbody' ).innerHTML = `<tr><th>File size</th><td class="${ tone( 'bytes', true, kb ) }">${ size }</td></tr>` + METRICS.map( ( m ) => `<tr><th>${ m.name } <span class="muted">(${ m.lowerIsBetter ? 'lower' : 'higher' } is better)</span></th><td class="${ tone( m.key, m.lowerIsBetter, m.format ) }">${ r ? m.format( r[ m.key ] ) : 'Lossless' }</td></tr>` ).join( '' );
+	} );
 }
 
 function zoomControls() {
@@ -152,7 +139,7 @@ function zoomControls() {
 	$( 'zoom' ).querySelectorAll( 'button' ).forEach( ( b ) => b.addEventListener( 'click', () => {
 		zoom = Number( b.dataset.value );
 		zoomControls();
-		applyZoom();
+		document.querySelectorAll( '.side img' ).forEach( ( img ) => ( img.style.width = `${ img.naturalWidth * zoom }px` ) );
 	} ) );
 }
 
@@ -161,14 +148,11 @@ function moveImage( delta ) {
 	render();
 }
 
-$( 'left-img' ).addEventListener( 'load', applyZoom );
-$( 'right-img' ).addEventListener( 'load', applyZoom );
 $( 'image' ).addEventListener( 'change', render );
 $( 'prev' ).addEventListener( 'click', () => moveImage( -1 ) );
 $( 'next' ).addEventListener( 'click', () => moveImage( 1 ) );
 zoomControls();
-controls( 'left' );
-controls( 'right' );
+columns.forEach( ( c, i ) => controls( i ) );
 render();
 </script>
 </body>
