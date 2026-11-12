@@ -2,7 +2,7 @@
 
 A benchmark and a blind visual test to find which AVIF quality matches JPEG 82, the long-standing WordPress default, and WebP 82, the WebP quality of the [Modern Image Formats](https://github.com/WordPress/performance/tree/trunk/plugins/webp-uploads) plugin.
 
-- Site: https://b1ink0.github.io/avif-vs-webp-quality/
+- Site: https://b1ink0.github.io/avif-quality-benchmark/
 - Issue: [WordPress/performance#2745](https://github.com/WordPress/performance/issues/2745)
 
 ## Why
@@ -82,7 +82,7 @@ With GD the same quality number gives about 7% larger and better files, because 
 
 ## Visual test
 
-The [test page](https://b1ink0.github.io/avif-vs-webp-quality/) asks which AVIF quality looks as good as JPEG 82.
+The [test page](https://b1ink0.github.io/avif-quality-benchmark/) asks which AVIF quality looks as good as JPEG 82.
 
 1. Open the site.
 2. In the toolbar above the image, pick the WordPress editor: **Server GD** (the most common), **Server Imagick** or **Browser upload**. Next to it, pick what to compare with: **JPEG 82** (the default), **WebP 82** or **WebP 86**. Zoom (1x, 2x, 3x) and your progress are on the right of the same toolbar.
@@ -98,7 +98,7 @@ The AVIF slider covers quality 50 to 90 in steps of 2. Images are shown in a ran
 
 ## Explore all encodes
 
-The [explorer](https://b1ink0.github.io/avif-vs-webp-quality/explore.html) shows three encodes of the same image side by side. It opens with JPEG 82, WebP 82 and AVIF 74 from GD.
+The [explorer](https://b1ink0.github.io/avif-quality-benchmark/explore.html) shows three encodes of the same image side by side. It opens with JPEG 82, WebP 82 and AVIF 74 from GD.
 
 - The toolbar switches images (‹ and ›) and zoom.
 - Each column has its own format (Original, JPEG, WebP, AVIF), editor (GD, Imagick, Browser) and quality.
